@@ -3,3 +3,4 @@ redis
 flask_mysqldb
 flask_cors
 gunicorn
+PyJWT==2.6.0
