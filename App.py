@@ -1,10 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_mysqldb import MySQL
-from flask_cors import CORS
-from datetime import datetime, timedelta
-import jwt
-
-# Inicializaciones
+from flask_cors import CORS, cross_origin
+from datetime import time
+# initializations
 app = Flask(__name__)
 CORS(app)
 
@@ -15,46 +13,15 @@ app.config['MYSQL_PASSWORD'] = 'jW42Eh3kyRSNEnJDxCmU'
 app.config['MYSQL_DB'] = 'bibrpdjqpsjsoq3u5r4n'
 mysql = MySQL(app)
 
-# Clave secreta para JWT
 app.secret_key = "mysecretkey"
 
-# Expiración del token JWT en minutos
-from datetime import datetime, timedelta, timezone
 
-# Configuración de la expiración del token
-TOKEN_EXPIRATION_MINUTES = 15
-
-
-# Generar un JWT
-def generate_jwt(user_id, rol):
-    expiration = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_EXPIRATION_MINUTES)
-    token = jwt.encode({'user_id': user_id, 'rol': rol, 'exp': expiration}, app.secret_key, algorithm='HS256')
-    return token
-
-# Middleware para verificar JWT
-def token_required(f):
-    def decorator(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(" ")[1]
-        if not token:
-            return jsonify({'message': 'Token no disponible'}), 401
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=['HS256'])
-            current_user_id = data['user_id']
-            current_user_rol = data['rol']
-        except Exception as e:
-            return jsonify({'message': 'Token inválido o expirado', 'error': str(e)}), 401
-        return f(current_user_id, current_user_rol, *args, **kwargs)
-    decorator.__name__ = f.__name__
-    return decorator
-
-# Ruta para iniciar sesión y obtener un token JWT
 @app.route('/login', methods=['POST'])
 def login():
     try:
         correo = request.json['correo']
         password = request.json['password']
+        
         
         cur = mysql.connection.cursor()
         cur.execute('SELECT * FROM usuarios WHERE correo = %s AND password = %s', (correo, password))
@@ -62,15 +29,23 @@ def login():
         cur.close()
 
         if usuario:
-            token = generate_jwt(usuario[0], usuario[5])
-            return jsonify({'success': True, 'token': token})
+            
+            content = {
+                'id': usuario[0],
+                'nombre': usuario[1],
+                'correo': usuario[2],
+                'carrera': usuario[3],
+                'password': usuario[4],
+                'rol': usuario[5]
+            }
+            return jsonify({'success': True, 'usuario': content})
         else:
+           
             return jsonify({'success': False, 'message': 'Correo o contraseña incorrectos'})
     except Exception as e:
         print(f'Error en /login: {e}')  
         return jsonify({'success': False, 'message': str(e)})
 
-# Ruta para registrar un nuevo usuario
 @app.route('/register', methods=['POST'])
 def register():
     try:
@@ -84,7 +59,7 @@ def register():
         cur = mysql.connection.cursor()
         cur.execute("""
             INSERT INTO usuarios (id, nombre, correo, carrera, password, rol)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s,%s, %s, %s, %s, %s)
         """, (id, nombre, correo, carrera, password, rol))
         mysql.connection.commit()
         cur.close()
@@ -93,47 +68,49 @@ def register():
     except Exception as e:
         print(f'Error en /register: {e}')
         return jsonify({"success": False, "message": str(e)})
-
-# Ruta para obtener todos los usuarios (protegida con JWT)
+    
+# ruta para consultar todos los registros
 @app.route('/getAll', methods=['GET'])
-@token_required
-def getAll(current_user_id, current_user_rol):
+def getAll():
     try:
         cur = mysql.connection.cursor()
         cur.execute('SELECT * FROM usuarios')
         rv = cur.fetchall()
         cur.close()
         payload = []
+        content = {}
         for result in rv:
             content = {'id': result[0], 'nombre': result[1], 'correo': result[2], 'carrera': result[3], 'password': result[4], 'rol': result[5]}
             payload.append(content)
+            content = {}
         return jsonify(payload)
     except Exception as e:
         print(e)
         return jsonify({"informacion": e})
 
-# Ruta para obtener un usuario por ID (protegida con JWT)
-@app.route('/getAllById/<id>', methods=['GET'])
-@token_required
-def getAllById(current_user_id, current_user_rol, id):
+  
+
+@app.route('/getAllById/<id>',methods=['GET'])
+def getAllById(id):
     try:
         cur = mysql.connection.cursor()
         cur.execute('SELECT * FROM usuarios WHERE id = %s', (id,))
         rv = cur.fetchall()
         cur.close()
         payload = []
+        content = {}
         for result in rv:
             content = {'id': result[0], 'nombre': result[1], 'correo': result[2], 'carrera': result[3], 'password': result[4], 'rol': result[5]}
             payload.append(content)
+            content = {}
         return jsonify(payload)
     except Exception as e:
         print(e)
         return jsonify({"informacion": e})
+    
 
-# Ruta para actualizar un usuario (protegida con JWT)
 @app.route('/update/<id>', methods=['PUT'])
-@token_required
-def update_user(current_user_id, current_user_rol, id):
+def update_user(id):
     try:
         data = request.json
         nombre = data.get('nombre')
@@ -146,7 +123,7 @@ def update_user(current_user_id, current_user_rol, id):
             UPDATE usuarios
             SET nombre = %s, correo = %s, carrera = %s, rol = %s
             WHERE id = %s
-        """, (nombre, correo, carrera, rol, id))
+        """, (nombre,  correo, carrera, rol, id))
         mysql.connection.commit()
         cur.close()
 
@@ -155,10 +132,8 @@ def update_user(current_user_id, current_user_rol, id):
         print(f'Error en /update/{id}: {e}')
         return jsonify({"success": False, "message": str(e)})
 
-# Ruta para eliminar un usuario (protegida con JWT)
 @app.route('/delete/<id>', methods=['DELETE'])
-@token_required
-def delete_user(current_user_id, current_user_rol, id):
+def delete_user(id):
     try:
         cur = mysql.connection.cursor()
         cur.execute('DELETE FROM usuarios WHERE id = %s', (id,))
@@ -169,11 +144,141 @@ def delete_user(current_user_id, current_user_rol, id):
         print(f'Error en /delete/{id}: {e}')
         return jsonify({"success": False, "message": str(e)})
 
-# Otras rutas de la API (también protegidas con JWT)
+
+@app.route('/update/<id>', methods=['PUT'])
+def update_contact(id):
+    try:
+        nombre = request.json['nombre']
+        correo = request.json['correo']
+        carrera = request.json['carrera']
+        rol = request.json['rol']
+        cur = mysql.connection.cursor()
+        cur.execute("""
+        UPDATE usuarios
+        SET nombre = %s, correo = %s, carrera = %s, rol = %s
+        WHERE id = %s
+        """, (nombre, correo, carrera, rol, id))
+        mysql.connection.commit()
+        cur.close()
+        return jsonify({"informacion": "Registro actualizado"})
+    except Exception as e:
+        print(e)
+        return jsonify({"informacion": e})
+
+
+
+def delete_contact(id):
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute('DELETE FROM usuarios WHERE id = %s', (id,))
+        mysql.connection.commit()
+        cur.close()
+        return jsonify({"informacion": "Registro eliminado"})
+    except Exception as e:
+        print(e)
+        return jsonify({"informacion": e})
+
+
+@app.route('/disponibilidad', methods=['POST'])
+def save_disponibilidad():
+    try:
+        data = request.json
+        profesor_id = data['profesor_id']
+        dia_semana = data['dia_semana']
+        hora_inicio = data['hora_inicio']
+        hora_fin = data['hora_fin']
+        lugar = data['lugar']
+
+        cur = mysql.connection.cursor()
+        cur.execute("""
+            INSERT INTO disponibilidad (profesor_id, dia_semana, hora_inicio, hora_fin, lugar)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (profesor_id, dia_semana, hora_inicio, hora_fin, lugar))
+        mysql.connection.commit()
+        cur.close()
+
+        return jsonify({"success": True, "message": "Disponibilidad guardada exitosamente"})
+    except Exception as e:
+        print(f'Error en /disponibilidad: {e}')
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/disponibilidad/<int:profesor_id>', methods=['GET'])
+def get_disponibilidad(profesor_id):
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute('SELECT * FROM disponibilidad WHERE profesor_id = %s', (profesor_id,))
+        disponibilidades = cur.fetchall()
+        cur.close()
+
+        payload = []
+        for d in disponibilidades:
+            payload.append({
+                'dia_semana': d[2],
+                'hora_inicio': str(d[3]),
+                'hora_fin': str(d[4]),
+                'lugar': d[5]
+            })
+
+        return jsonify(payload)
+    except Exception as e:
+        print(f'Error en /disponibilidad/{profesor_id}: {e}')
+        return jsonify({"success": False, "message": str(e)})
+    
+@app.route('/getdocente', methods=['GET'])
+def getdocente():
+    try:
+        query = request.args.get('query', '')
+        cur = mysql.connection.cursor()
+        if query:
+            cur.execute("SELECT * FROM usuarios WHERE rol = 'docente' AND (nombre LIKE %s )", (f'%{query}%'))
+        else:
+            cur.execute("SELECT * FROM usuarios WHERE rol = 'docente'")
+        rv = cur.fetchall()
+        cur.close()
+        payload = []
+        for result in rv:
+            content = {
+                'id': result[0],
+                'nombre': result[1],
+                'correo': result[2],
+                'carrera': result[3],
+                'password': result[4],
+                'rol': result[5]
+            }
+            payload.append(content)
+        return jsonify(payload)
+    except Exception as e:
+        print(e)
+        return jsonify({"informacion": e})
+    
+@app.route('/tutoria', methods=['POST'])
+def save_tutoria():
+    try:
+        data = request.json
+        estudiante_id = data['estudiante_id']
+        profesor_id = data['profesor_id']  # Usa profesor_id aquí
+        dia_semana = data['dia_semana']
+        hora_inicio = data['hora_inicio']
+        hora_fin = data['hora_fin']
+        lugar = data['lugar']
+        tema = data['tema']
+
+        cur = mysql.connection.cursor()
+        cur.execute("""
+            INSERT INTO tutorias (estudiante_id, profesor_id, dia_semana, hora_inicio, hora_fin, lugar, tema)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (estudiante_id, profesor_id, dia_semana, hora_inicio, hora_fin, lugar, tema))
+        mysql.connection.commit()
+        cur.close()
+
+        return jsonify({"success": True, "message": "Tutoria solicitada exitosamente"})
+    except Exception as e:
+        print(f'Error en /tutoria: {e}')
+        return jsonify({"success": False, "message": str(e)})
+
 
 @app.route('/count_users', methods=['GET'])
-@token_required
-def count_users(current_user_id, current_user_rol):
+def count_users():
     try:
         cur = mysql.connection.cursor()
         cur.execute("SELECT COUNT(*) FROM usuarios")
@@ -185,8 +290,7 @@ def count_users(current_user_id, current_user_rol):
         return jsonify({'error': str(e)})
 
 @app.route('/count_tutorias', methods=['GET'])
-@token_required
-def count_tutorias(current_user_id, current_user_rol):
+def count_tutorias():
     try:
         cur = mysql.connection.cursor()
         cur.execute("SELECT COUNT(*) FROM tutorias")
@@ -198,8 +302,7 @@ def count_tutorias(current_user_id, current_user_rol):
         return jsonify({'error': str(e)})
 
 @app.route('/count_users_by_role', methods=['GET'])
-@token_required
-def count_users_by_role(current_user_id, current_user_rol):
+def count_users_by_role():
     try:
         cur = mysql.connection.cursor()
         cur.execute("""
@@ -210,6 +313,7 @@ def count_users_by_role(current_user_id, current_user_rol):
         results = cur.fetchall()
         cur.close()
 
+        
         counts = {'admin': 0, 'docente': 0, 'estudiante': 0}
         for result in results:
             role, count = result
@@ -221,11 +325,8 @@ def count_users_by_role(current_user_id, current_user_rol):
         print(f'Error en /count_users_by_role: {e}')
         return jsonify({'error': str(e)})
 
-# Añade las demás rutas y asegúrate de protegerlas con  si es necesario.
-
 
 @app.route('/tutorias/<int:estudiante_id>', methods=['GET'])
-@token_required
 def get_tutorias(estudiante_id):
     try:
         cur = mysql.connection.cursor()
@@ -257,7 +358,6 @@ def get_tutorias(estudiante_id):
         return jsonify({"success": False, "message": str(e)})
 
 @app.route('/tutoria/<int:tutoria_id>', methods=['DELETE'])
-@token_required
 def delete_tutoria(tutoria_id):
     try:
         cur = mysql.connection.cursor()
@@ -270,7 +370,6 @@ def delete_tutoria(tutoria_id):
         return jsonify({"success": False, "message": str(e)})
 
 @app.route('/tutorias_profesor/<int:profesor_id>', methods=['GET'])
-@token_required
 def get_tutorias_profesor(profesor_id):
     try:
         cur = mysql.connection.cursor()
@@ -303,7 +402,6 @@ def get_tutorias_profesor(profesor_id):
         return jsonify({"success": False, "message": str(e)})
 
 @app.route('/tutoria/<int:id>', methods=['PUT'])
-@token_required
 def update_tutoria(id):
     try:
 
@@ -335,7 +433,6 @@ def update_tutoria(id):
         return jsonify({"success": False, "message": str(e)})
     
 @app.route('/estudiante_carrera/<int:estudiante_id>', methods=['GET'])
-@token_required
 def get_estudiante_carrera(estudiante_id):
     try:
         cur = mysql.connection.cursor()
@@ -352,7 +449,6 @@ def get_estudiante_carrera(estudiante_id):
         return jsonify({"success": False, "message": str(e)})
     
 @app.route('/tutoriascompletadas', methods=['POST'])
-@token_required
 def save_tutoria_completada():
     try:
         data = request.json
@@ -385,7 +481,6 @@ def save_tutoria_completada():
     
 
 @app.route('/tutorias_finalizadas', methods=['POST'])
-@token_required
 def get_tutorias_finalizadas():
     try:
         data = request.json
@@ -424,3 +519,4 @@ def get_tutorias_finalizadas():
 # starting the app
 if __name__ == "__main__":
     app.run(port=3000, debug=True)
+
